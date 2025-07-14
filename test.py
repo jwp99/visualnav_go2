@@ -145,7 +145,7 @@ def update_plot(artists, robot_pos, robot_yaw, obs_img, goal_img, waypoints):
 
 if __name__ == "__main__":
     # -------- User Paths and Config --------
-    traj_dir = "testdata/go_stanford/no1vc_7_0"
+    traj_dir = "testdata/no1vc_7_0"
     ckpt_path = "/home/jeong/visualnav-transformer/nomad.pth"
     config_path = "train/config/nomad.yaml"
     device = torch.device("cpu")
