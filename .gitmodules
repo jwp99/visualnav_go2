@@ -1,0 +1,3 @@
+[submodule "minimppi"]
+	path = minimppi
+	url = https://github.com/jwp99/minimppi.git

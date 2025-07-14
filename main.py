@@ -23,6 +23,10 @@ CONFIG_PATH = "train/config/nomad.yaml"
 
 # --- FastAPI App Setup ---
 
+
+MAX_V = 0.6
+FRAME_RATE = 4
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Load resources on startup
@@ -97,7 +101,7 @@ def generate_waypoints(model, noise_sched, obs_queue, goal_img_tensor, cfg, devi
         
         waypoints = to_numpy(get_action(naction))
     
-    return waypoints
+    return waypoints * MAX_V / FRAME_RATE
 
 # --- API Endpoints ---
 

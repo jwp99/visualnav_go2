@@ -9,6 +9,8 @@ import asyncio
 import threading
 from queue import Queue, Empty
 import logging
+import pickle
+import numpy as np
 
 # 가상환경에 설치된 라이브러리를 표준 방식으로 바로 임포트합니다.
 from go2_webrtc_driver.webrtc_driver import Go2WebRTCConnection, WebRTCConnectionMethod
@@ -22,10 +24,9 @@ class Go2TrajectoryCollector:
     def __init__(self, robot_ip="192.168.200.157"):
         self.robot_ip = robot_ip
         dataset_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.dataset_dir = f"go2_dataset_{dataset_id}"
-        self.image_dir = os.path.join(self.dataset_dir, "images")
-        self.raw_csv_path = os.path.join(self.dataset_dir, "raw_data_log.csv")
-        os.makedirs(self.image_dir, exist_ok=True)
+        self.dataset_dir = f"testdata/go2_dataset_{dataset_id}"
+        self.output_pkl_path = os.path.join(self.dataset_dir, "traj_data.pkl")
+        os.makedirs(self.dataset_dir, exist_ok=True)
         print(f"데이터셋이 '{self.dataset_dir}' 폴더에 저장됩니다.")
 
         self.frame_queue = Queue(maxsize=30)
@@ -84,6 +85,7 @@ class Go2TrajectoryCollector:
                 return
 
         raw_log_data = []
+        image_idx = 0
         try:
             while self.is_running:
                 try:
@@ -96,19 +98,18 @@ class Go2TrajectoryCollector:
                 
                 if not current_state: continue
 
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-                image_filename = f"{timestamp}.png"
-                image_path = os.path.join(self.image_dir, image_filename)
+                image_filename = f"{image_idx}.jpg"
+                image_path = os.path.join(self.dataset_dir, image_filename)
                 
                 resized_frame = cv2.resize(image_frame, (96, 96))
                 cv2.imwrite(image_path, resized_frame)
+                image_idx += 1
 
                 # --- 최종 수정된 부분 ---
                 # 이제 정확한 경로로 Yaw 값을 가져옵니다.
                 yaw_value = current_state['imu_state']['rpy'][2]
                 
                 log_entry = {
-                    'timestamp': timestamp, 'image_path': image_path,
                     'pos_x': current_state['position'][0], 
                     'pos_y': current_state['position'][1],
                     'pos_z': current_state['position'][2], 
@@ -126,9 +127,24 @@ class Go2TrajectoryCollector:
             print("\n데이터를 파일로 저장합니다...")
             if raw_log_data:
                 df = pd.DataFrame(raw_log_data)
-                df.to_csv(self.raw_csv_path, index=False)
-                print(f"성공! 총 {len(df)}개의 궤적 데이터가 '{self.raw_csv_path}'에 저장되었습니다.")
-            
+                
+                positions = df[['pos_x', 'pos_y']].to_numpy(dtype=np.float64)
+                yaws = df['yaw'].to_numpy(dtype=np.float64)
+
+                processed_data = {
+                    'position': positions.tolist(),
+                    'yaw': yaws.tolist()
+                }
+
+                with open(self.output_pkl_path, 'wb') as f:
+                    pickle.dump(processed_data, f, protocol=4)
+                
+                print("\n--- 처리 결과 ---")
+                print(f"Position 데이터 형태: {positions.shape}")
+                print(f"Yaw 데이터 형태: {yaws.shape}")
+                print(f"성공! 처리된 데이터가 '{self.output_pkl_path}'에 저장되었습니다.")
+                print("이제 이 폴더를 visualnav-transformer 모델 학습에 사용할 수 있습니다.")
+
             if self.asyncio_loop.is_running():
                 self.asyncio_loop.call_soon_threadsafe(self.asyncio_loop.stop)
             self.asyncio_thread.join(timeout=5)
