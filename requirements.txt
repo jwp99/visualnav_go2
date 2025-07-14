@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+python-multipart
+torch
+numpy
+PyYAML
+Pillow
+diffusers
+matplotlib
+requests 
