@@ -161,3 +161,5 @@ async def generate_waypoints_endpoint():
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the Visual Navigation Waypoint Generation API"} 
+
+# uvicorn main:app --host 0.0.0.0 --port 8001
