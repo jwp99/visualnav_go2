@@ -7,4 +7,5 @@ PyYAML
 Pillow
 diffusers
 matplotlib
-requests 
+requests
+torchvision 

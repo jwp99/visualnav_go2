@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from PIL import Image
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
+from torchvision.transforms.functional import to_pil_image
 
 # Add project directories to Python path
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
@@ -67,7 +68,7 @@ app.state.goal_image = None
 app.state.goal_image_tensor = None
 
 # --- Core Waypoint Generation Logic ---
-def generate_waypoints(model, noise_sched, obs_queue, goal_img_tensor, cfg, device):
+def generate_waypoints(model, noise_sched, obs_queue, goal_img_tensor, cfg, device, visualize=True):
     """
     Generates waypoint predictions given observations and a goal image.
     """
@@ -76,8 +77,17 @@ def generate_waypoints(model, noise_sched, obs_queue, goal_img_tensor, cfg, devi
     
     # Prepare observation tensors
     obs_images_tensors = transform_images(list(obs_queue), cfg['image_size'], center_crop=False)
-    obs_images_tensors = torch.split(obs_images_tensors, 3, dim=1)
-    obs_images_tensors = torch.cat(obs_images_tensors, dim=1).to(device)
+    obs_images_list = torch.split(obs_images_tensors, 3, dim=1)
+
+    if visualize:
+        testdata_dir = "testdata/obs"
+        if not os.path.exists(testdata_dir):
+            os.makedirs(testdata_dir)
+        for i, img_tensor in enumerate(obs_images_list):
+            pil_img = to_pil_image(img_tensor.squeeze(0).cpu())
+            pil_img.save(os.path.join(testdata_dir, f"transformed_obs_{i}.png"))
+
+    obs_images_tensors = torch.cat(obs_images_list, dim=1).to(device)
 
     # Get conditioning vector
     mask = torch.zeros(1).long().to(device)
