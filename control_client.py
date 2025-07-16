@@ -194,8 +194,9 @@ BASE_URL = "http://127.0.0.1:8000"# if local else "http://192.168.200.130:8000"
 live_visualize = True
 
 # Local goal image to upload to the AI server at startup
-GOAL_IMAGE_PATH = "testdata/go2_dataset_20250714_191924/90.jpg"
-
+# GOAL_IMAGE_PATH = "testdata/go2_dataset_20250714_191924/90.jpg"
+# GOAL_IMAGE_PATH = "testdata/recording_20250716_174201/0073.jpg"
+GOAL_IMAGE_PATH = "testdata/recording_20250716_193037/0025.jpg"
 
 class ControllerWrapper :
     def __init__(self):
