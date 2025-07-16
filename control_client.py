@@ -1,7 +1,7 @@
 import time
 import requests
 import numpy as np
-from typing import Optional, cast, List, Tuple
+from typing import Optional, cast, List, Tuple, TYPE_CHECKING
 
 from minimal_mppi_py import MinimalMPPI, Pose2D, Twist2D, Costmap2D, MPPIConfig  # type: ignore
 import matplotlib.pyplot as plt
@@ -11,6 +11,179 @@ import base64
 import io  # added for live visualization image decoding
 from itertools import cycle  # for consistent color cycling
 
+if TYPE_CHECKING:
+    from minimal_mppi_py import Costmap2D  # type: ignore
+
+# -----------------------------------------------------------------------------
+# Live Visualization
+# -----------------------------------------------------------------------------
+
+
+class LiveVisualizer:
+    """Manages the live visualization plot."""
+
+    def __init__(self, goal_image_path: str):
+        plt.ion()
+        self.fig = plt.figure(figsize=(14, 7))
+        gs = gridspec.GridSpec(2, 2, figure=self.fig, width_ratios=[1, 2])
+
+        self.ax_frame = self.fig.add_subplot(gs[0, 0])
+        self.ax_goal = self.fig.add_subplot(gs[1, 0])
+        self.ax_traj = self.fig.add_subplot(gs[:, 1])
+
+        self.ax_frame.set_title("Latest Camera Frame")
+        self.ax_frame.axis("off")
+        self.ax_traj.set_title("Robot Trajectory")
+        self.ax_traj.set_aspect("equal", "box")
+
+        # Goal image
+        self._show_goal_image(goal_image_path)
+
+        # Plot element handles
+        self.img_handle = None
+        self.arrow_handle = None
+        self.costmap_handle = self.ax_traj.imshow(
+            np.zeros((1, 1), dtype=np.uint8),
+            extent=(0, 1, 0, 1),
+            origin="lower",
+            cmap="gray_r",
+            vmin=0,
+            vmax=255,
+            zorder=0,
+        )
+        self.cum_line, = self.ax_traj.plot([], [], "k-", lw=1, label="Cumulative Path")
+        self.traj_line_current = None
+
+        # Data stores
+        self.cum_path: List[List[float]] = []
+        self.color_cycler = cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
+        self.loop_count = 0
+
+    def _show_goal_image(self, goal_image_path: str):
+        """Helper to display the goal image on its designated axis."""
+        self.ax_goal.set_title("Goal Image")
+        self.ax_goal.axis("off")
+        if os.path.exists(goal_image_path):
+            try:
+                goal_img = plt.imread(goal_image_path)
+                self.ax_goal.imshow(goal_img)
+            except Exception as exc:
+                print(f"[WARN] Could not load goal image for viz: {exc}")
+                self.ax_goal.text(0.5, 0.5, "Goal image could not be loaded", ha="center", va="center")
+        else:
+            self.ax_goal.text(0.5, 0.5, "Goal image not found", ha="center", va="center")
+
+    def start_new_loop(self, trajectory: List[Tuple[float, float, float]]):
+        """Prepare the plot for a new control loop iteration."""
+        self.loop_count += 1
+        loop_color = next(self.color_cycler)
+
+        # Create a new line for the upcoming trajectory segment
+        (self.traj_line_current,) = self.ax_traj.plot(
+            [], [], marker=".", lw=1, color=loop_color, label=f"Path loop {self.loop_count}"
+        )
+
+        # Remove the previous robot orientation arrow
+        if self.arrow_handle:
+            self.arrow_handle.remove()
+            self.arrow_handle = None
+
+        # Plot the planned trajectory for this loop
+        try:
+            traj_xy = np.array([(pt[0], pt[1]) for pt in trajectory[1:]])
+            if traj_xy.size > 0:
+                self.ax_traj.plot(
+                    traj_xy[:, 0],
+                    traj_xy[:, 1],
+                    linestyle="--",
+                    marker=".",
+                    lw=1,
+                    color=loop_color,
+                    alpha=0.7,
+                    label=f"Planned Traj {self.loop_count}",
+                )
+        except Exception as e:
+            print(f"[WARN] Could not plot planned trajectory: {e}")
+
+        self.ax_traj.legend(loc="upper right", fontsize="x-small")
+
+    def update(
+        self,
+        pose: Tuple[float, float, float],
+        img_b64: Optional[str],
+        path_hist: List[List[float]],
+        yaw_hist: List[float],
+        costmap: "Costmap2D",
+    ):
+        """Update all dynamic elements in the plot for the current timestep."""
+        self._update_costmap(pose, costmap)
+        self._update_camera_frame(img_b64)
+        self._update_trajectory_plots(path_hist, yaw_hist)
+
+        self.fig.canvas.draw_idle()
+        plt.pause(0.001)
+
+    def _update_costmap(self, pose: Tuple[float, float, float], costmap: "Costmap2D"):
+        if costmap and costmap.get_size_x() > 0:
+            costmap_np = costmap.get_costmap_numpy()
+            origin_x = pose[0] - (costmap.get_size_x() * costmap.get_resolution()) / 2.0
+            origin_y = pose[1] - (costmap.get_size_y() * costmap.get_resolution()) / 2.0
+            extent = (
+                origin_x,
+                origin_x + costmap.get_size_x() * costmap.get_resolution(),
+                origin_y,
+                origin_y + costmap.get_size_y() * costmap.get_resolution(),
+            )
+            self.costmap_handle.set_data(costmap_np)
+            self.costmap_handle.set_extent(extent)
+
+    def _update_camera_frame(self, img_b64: Optional[str]):
+        if img_b64 is None:
+            return
+        try:
+            img_np = plt.imread(io.BytesIO(base64.b64decode(img_b64)), format="jpeg")
+            if self.img_handle is None:
+                self.img_handle = self.ax_frame.imshow(img_np)
+            else:
+                self.img_handle.set_data(img_np)
+        except Exception as exc:
+            print(f"[WARN] Failed to update frame visualization: {exc}")
+
+    def _update_trajectory_plots(self, path_hist: List[List[float]], yaw_hist: List[float]):
+        if not path_hist:
+            return
+
+        path_arr = np.array(path_hist)
+        cur_x, cur_y = path_arr[-1]
+        cur_theta = yaw_hist[-1] if yaw_hist else 0.0
+
+        # Update current loop's path
+        if self.traj_line_current:
+            self.traj_line_current.set_data(path_arr[:, 0], path_arr[:, 1])
+
+        # Update cumulative path
+        self.cum_path.append([cur_x, cur_y])
+        self.cum_line.set_data(np.array(self.cum_path)[:, 0], np.array(self.cum_path)[:, 1])
+
+        # Update robot orientation arrow
+        if self.arrow_handle:
+            self.arrow_handle.remove()
+        scale_len = 0.25  # shorter arrow
+        self.arrow_handle = self.ax_traj.quiver(
+            cur_x,
+            cur_y,
+            np.cos(cur_theta) * scale_len,
+            np.sin(cur_theta) * scale_len,
+            color="r",
+            scale_units="xy",
+            scale=1,
+            width=0.004,
+        )
+
+        self.ax_traj.relim()
+        self.ax_traj.autoscale_view()
+
+
 # -----------------------------------------------------------------------------
 # External AI-server configuration
 # -----------------------------------------------------------------------------
@@ -19,11 +192,6 @@ local = False
 AI_SERVER_URL = "http://127.0.0.1:8001" if local else "http://192.168.200.130:8001"
 BASE_URL = "http://127.0.0.1:8000"# if local else "http://192.168.200.130:8000"
 live_visualize = True
-
-# Global context for live visualisation so we reuse the same figure across
-# successive control-loop invocations.
-viz_context: dict = {}
-viz_context['loop_count'] = 0  # track number of loops visualised
 
 # Local goal image to upload to the AI server at startup
 GOAL_IMAGE_PATH = "testdata/go2_dataset_20250714_191924/90.jpg"
@@ -62,6 +230,19 @@ class ControllerWrapper :
         """Pass-through to get the internal MPPI costmap object."""
         return self.controller.get_costmap()
 
+    def update_costmap(self, pose: Tuple[float, float, float], angles: np.ndarray, ranges: np.ndarray) -> Costmap2D:
+        """Update the internal costmap with a new laser scan."""
+        current_pose = Pose2D()
+        current_pose.x, current_pose.y, current_pose.theta = pose
+
+        costmap = self.controller.get_costmap()
+        new_origin_x = current_pose.x - (costmap.get_size_x() * costmap.get_resolution()) / 2.0
+        new_origin_y = current_pose.y - (costmap.get_size_y() * costmap.get_resolution()) / 2.0
+        costmap.updateOrigin(new_origin_x, new_origin_y)
+        costmap.update_with_scan(current_pose, ranges, angles)
+        costmap.inflate(0.5, 0.2, 10.0)
+        return costmap
+
     def get_action(self, pose, vel, traj, angles, ranges, plot = True):
         # Convert pose tuple to Pose2D
         current_pose = Pose2D()
@@ -74,17 +255,11 @@ class ControllerWrapper :
         # Convert trajectory points to list of Pose2D
         global_plan = []
         for point in traj:
-            pose = Pose2D()
-            pose.x, pose.y, pose.theta = point
-            global_plan.append(pose)
+            pose_2d = Pose2D()
+            pose_2d.x, pose_2d.y, pose_2d.theta = point
+            global_plan.append(pose_2d)
             
-        costmap = self.controller.get_costmap()
-        new_origin_x = current_pose.x - (costmap.get_size_x() * costmap.get_resolution()) / 2.0
-        new_origin_y = current_pose.y - (costmap.get_size_y() * costmap.get_resolution()) / 2.0
-        costmap.updateOrigin(new_origin_x, new_origin_y)
-        costmap.update_with_scan(current_pose, ranges, angles)
-        costmap.inflate(0.5, 0.2, 10.0)
-
+        self.update_costmap(pose, angles, ranges)
 
         best_velocity = self.controller.compute_velocity_commands(
             current_pose,
@@ -96,6 +271,8 @@ class ControllerWrapper :
             optimal_traj = self.controller.get_optimal_trajectory()
             if optimal_traj is not None and len(optimal_traj.x) > 0:
                 opt_np = np.concatenate([optimal_traj.x, optimal_traj.y, optimal_traj.yaws]).T
+            else:
+                opt_np = np.array([])
             self.plot((current_pose.x, current_pose.y, current_pose.theta), title=f"local costmap {time.strftime('%H:%M:%S')}",trajectory=opt_np, save=True)
 
 
@@ -154,7 +331,7 @@ class ControllerWrapper :
 MAX_STEPS = 5  # set to a positive integer for a finite run
 
 # Time to wait between control iterations (seconds)
-CONTROL_PERIOD = 0.1
+CONTROL_PERIOD = 0.2
 
 # -----------------------------------------------------------------------------
 # Helper functions for HTTP requests
@@ -357,6 +534,7 @@ def run_control_loop(
     trajectory: List[Tuple[float, float, float]],
     max_steps: int,
     initial_vel: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    visualizer: Optional["LiveVisualizer"] = None,
 ) -> Tuple[Tuple[float, float, float], np.ndarray, np.ndarray]:
     """Run closed-loop control for *max_steps* iterations.
 
@@ -371,101 +549,10 @@ def run_control_loop(
     yaw_hist: List[float] = []
 
     # --------------------------------------------------------------
-    # Live visualization setup / reuse                             
+    # Live visualization setup / reuse
     # --------------------------------------------------------------
-    if live_visualize:
-        global viz_context
-        if 'fig' not in viz_context:
-            # First-time creation of the figure and axes
-            plt.ion()
-            fig = plt.figure(figsize=(14, 7))
-            gs = gridspec.GridSpec(2, 2, figure=fig, width_ratios=[1, 2])
- 
-            ax_frame = fig.add_subplot(gs[0, 0])
-            ax_goal = fig.add_subplot(gs[1, 0])
-            ax_traj = fig.add_subplot(gs[:, 1])
- 
-            # Show goal image once
-            if os.path.exists(GOAL_IMAGE_PATH):
-                try:
-                    goal_img = plt.imread(GOAL_IMAGE_PATH)
-                    ax_goal.imshow(goal_img)
-                    ax_goal.axis('off')
-                    ax_goal.set_title("Goal Image")
-                except Exception as exc:
-                    print(f"[WARN] Could not load goal image for viz: {exc}")
-            else:
-                ax_goal.text(0.5, 0.5, 'Goal image not found', ha='center', va='center')
-                ax_goal.axis('off')
- 
-            img_handle = None
-            arrow_handle = None
-             
-            ax_frame.set_title("Latest Camera Frame")
-            ax_frame.axis("off")
-            ax_traj.set_title("Robot Trajectory")
-            ax_traj.set_aspect("equal", "box")
- 
-             # Cumulative line (black)
-            cum_line, = ax_traj.plot([], [], 'k-', lw=1, label='Cumulative Path')
- 
-             # Costmap image background
-            costmap_handle = ax_traj.imshow(np.zeros((1, 1), dtype=np.uint8), extent=(0, 1, 0, 1),
-                                             origin='lower', cmap='gray_r', vmin=0, vmax=255, zorder=0)
- 
-            cum_path = []
-            viz_context.update({
-                "fig": fig,
-                "ax_frame": ax_frame,
-                "ax_traj": ax_traj,
-                "ax_goal": ax_goal,
-                "img_handle": img_handle,
-                "arrow_handle": arrow_handle,
-                "color_cycler": cycle(plt.rcParams['axes.prop_cycle'].by_key()['color']),
-                "cum_line": cum_line,
-                "cum_path": cum_path,
-                "costmap_handle": costmap_handle,
-            })
-        else:
-            fig = viz_context["fig"]
-            ax_frame = viz_context["ax_frame"]
-            ax_traj = viz_context["ax_traj"]
-            ax_goal = viz_context["ax_goal"]
-            img_handle = viz_context.get("img_handle")
-            arrow_handle = viz_context.get("arrow_handle")
-            cum_line = viz_context["cum_line"]
-            cum_path = viz_context["cum_path"]
-            costmap_handle = viz_context["costmap_handle"]
- 
-        # Choose a new colour for this loop and create a new line for its path
-        loop_color = next(viz_context['color_cycler'])
-        traj_line, = ax_traj.plot([], [], marker='.', lw=1, color=loop_color,
-                                   label=f"Path loop {viz_context['loop_count'] + 1}")
- 
-        # Remove any existing arrow so we can redraw cleanly
-        if arrow_handle is not None:
-            arrow_handle.remove()
-            arrow_handle = None
- 
-        # (Re)plot the planned trajectory for this run
-        try:
-            traj_xy = np.array([(pt[0], pt[1]) for pt in trajectory[1:]])  # skip current pose
-            if traj_xy.size > 0:
-                ax_traj.plot(traj_xy[:, 0], traj_xy[:, 1], linestyle='--', marker='.', lw=1,
-                             color=loop_color, alpha=0.7, label=f"Planned Traj {viz_context['loop_count'] + 1}")
- 
-        except Exception:
-            pass
- 
-        ax_traj.legend(loc="upper right", fontsize='x-small')
- 
-        # Stash updated handles back into the context
-        viz_context["img_handle"] = img_handle
-        viz_context["arrow_handle"] = arrow_handle
-        viz_context["traj_line_current"] = traj_line
-        viz_context['loop_count'] += 1
-        viz_context['cum_line'] = cum_line
-        viz_context['cum_path'] = cum_path
+    if visualizer:
+        visualizer.start_new_loop(trajectory)
 
     current_vel = initial_vel
     step_count = 0
@@ -503,71 +590,16 @@ def run_control_loop(
             print(f"[WARN] Failed to send step: {exc}")
 
         # ----------------------------------------------------------
-        # Live visualization update                                 
+        # Live visualization update
         # ----------------------------------------------------------
-        if live_visualize:
-            fig = viz_context["fig"]
-            ax_frame = viz_context["ax_frame"]
-            ax_traj = viz_context['ax_traj']
-            costmap_handle = viz_context['costmap_handle']
-            # ---- Update costmap background ----
-            costmap = controller.get_costmap()
-            if costmap and costmap.get_size_x() > 0:
-                costmap_np = costmap.get_costmap_numpy()
-                origin_x = pose[0] - (costmap.get_size_x() * costmap.get_resolution()) / 2.0
-                origin_y = pose[1] - (costmap.get_size_y() * costmap.get_resolution()) / 2.0
-                extent = (origin_x, origin_x + costmap.get_size_x() * costmap.get_resolution(),
-                          origin_y, origin_y + costmap.get_size_y() * costmap.get_resolution())
-
-                costmap_handle.set_data(costmap_np)
-                costmap_handle.set_extent(extent)
-
-            # Update camera frame on the left
-            if img_b64 is not None:
-                try:
-                    img_np = plt.imread(io.BytesIO(base64.b64decode(img_b64)), format="jpeg")
-                    img_handle = viz_context.get("img_handle")
-                    if img_handle is None:
-                        viz_context["img_handle"] = ax_frame.imshow(img_np)
-                    else:
-                        img_handle.set_data(img_np)
-                except Exception as exc:
-                    print(f"[WARN] Failed to update frame visualization: {exc}")
-
-            # Update trajectory on the right
-            if path_hist:
-                path_arr = np.array(path_hist)
-                traj_line = viz_context["traj_line_current"]
-                traj_line.set_data(path_arr[:, 0], path_arr[:, 1])
-                ax_traj.relim()
-                ax_traj.autoscale_view(True, True, True)
-
-                # Update robot orientation arrow
-                try:
-                    cur_x, cur_y = path_arr[-1]
-                    cur_theta = yaw_hist[-1] if yaw_hist else 0.0
-                    arrow_handle = viz_context.get("arrow_handle")
-                    # Remove previous arrow
-                    if arrow_handle is not None:
-                        arrow_handle.remove()
-                    scale_len = 0.25  # shorter arrow
-                    arrow_handle = ax_traj.quiver(cur_x, cur_y,
-                                                  np.cos(cur_theta) * scale_len,
-                                                  np.sin(cur_theta) * scale_len,
-                                                  color='r', scale_units='xy', scale=1, width=0.004)
-                    viz_context["arrow_handle"] = arrow_handle
- 
-                    # -- cumulative path update --
-                    cum_path = viz_context['cum_path']
-                    cum_line = viz_context['cum_line']
-                    cum_path.append([cur_x, cur_y])
-                    cum_arr = np.array(cum_path)
-                    cum_line.set_data(cum_arr[:, 0], cum_arr[:, 1])
-                except Exception as exc:
-                    print(f"[WARN] Failed to update robot orientation: {exc}")
- 
-            fig.canvas.draw_idle()
-            plt.pause(0.001)
+        if visualizer:
+            visualizer.update(
+                pose=pose,
+                img_b64=img_b64,
+                path_hist=path_hist,
+                yaw_hist=yaw_hist,
+                costmap=controller.get_costmap(),
+            )
 
         current_vel = (vx, vy, vw)
         step_count += 1
@@ -591,6 +623,9 @@ if __name__ == "__main__":
     # Ensure the AI server has the goal image
     send_goal_image_once()
 
+    # Setup live visualizer if enabled
+    visualizer = LiveVisualizer(GOAL_IMAGE_PATH) if live_visualize else None
+
     # --------------------------------------------------------------
     # 1. FIRST LOOP – simple two-point trajectory to gather images
     # --------------------------------------------------------------
@@ -605,13 +640,13 @@ if __name__ == "__main__":
     first_traj = [start_pose, simple_target]
     print(f"[INFO] Starting first control loop with trajectory: {first_traj}")
 
-    final_pose1, path1, yaw1 = run_control_loop(controller, first_traj, 5)
+    final_pose1, path1, yaw1 = run_control_loop(controller, first_traj, 4, visualizer=visualizer)
 
     # --------------------------------------------------------------
     # 2. REPEATED LOOPS USING AI-PREDICTED WAYPOINTS (5 iterations)
     # --------------------------------------------------------------
 
-    loops_to_run = 5
+    loops_to_run = 50
     current_pose = final_pose1
     full_path = path1
     full_yaw = yaw1
@@ -619,7 +654,10 @@ if __name__ == "__main__":
 
     for loop_idx in range(loops_to_run):
         print(f"[INFO] Loop {loop_idx + 1}/{loops_to_run}: Fetching waypoints from AI server…")
+        fetch_start_time = time.time()
         local_wps_raw = fetch_waypoints()
+        fetch_end_time = time.time()
+        print(f"[INFO] fetch_waypoints() took {fetch_end_time - fetch_start_time:.3f} seconds.")
 
         # Prepare usable (N,2) waypoint array
         if local_wps_raw is not None and local_wps_raw.size > 0:
@@ -643,7 +681,12 @@ if __name__ == "__main__":
             traj = [current_pose, (current_pose[0] + 0.5, current_pose[1], current_pose[2])]
 
         print(f"[INFO] Executing control loop for trajectory with {len(traj)} points…")
-        current_pose, path_seg, yaw_seg = run_control_loop(controller, traj, 3)
+        loop_start_time = time.time()
+        current_pose, path_seg, yaw_seg = run_control_loop(
+            controller, traj, 3, visualizer=visualizer
+        )
+        loop_end_time = time.time()
+        print(f"[INFO] Control loop {loop_idx + 1} took {loop_end_time - loop_start_time:.2f} seconds.")
 
         full_path = np.vstack([full_path, path_seg])
         full_yaw = np.hstack([full_yaw, yaw_seg])

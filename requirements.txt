@@ -9,3 +9,4 @@ diffusers
 matplotlib
 requests
 torchvision 
+PyQt6
