@@ -107,6 +107,7 @@ After step 2 of data processing, the processed data-split should the following s
 └── └── test
         └── traj_names.txt 
 ``` 
+<!-- python train/data_split.py --data-dir traindata --dataset-name go2_dataset --data-splits-dir train/vint_train/data/data_splits -->
 
 ### Training your General Navigation Models
 Run this inside the `vint_release/train` directory:

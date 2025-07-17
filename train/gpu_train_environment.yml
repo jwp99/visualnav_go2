@@ -1,0 +1,38 @@
+name: nomad_gpu
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  # Core
+  - python=3.10
+  - ipykernel
+  - numpy
+  - matplotlib
+  - pip
+
+  # NOTE: PyTorch must be installed with pip for full GPU support, e.g.:
+  # pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
+
+  # Extra native libs used by the repo
+  - h5py=3.6.0
+  - tqdm=4.64.0
+
+  # everything else via pip (same versions as original)
+  - pip:
+      - git+https://github.com/ildoonet/pytorch-gradual-warmup-lr.git
+      - opencv-python==4.6.0.66
+      - wandb==0.12.18
+      - --extra-index-url https://rospypi.github.io/simple/
+      - rosbag
+      - roslz4
+      - prettytable
+      - efficientnet-pytorch
+      - warmup-scheduler
+      - diffusers>=0.27.0
+      - huggingface_hub>=0.20.2
+      - lmdb
+      - vit-pytorch
+      - positional-encodings
+      - charset_normalizer==3.3.2 

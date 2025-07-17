@@ -23,19 +23,21 @@ from vint_train.training.train_utils import get_action
 
 # --- Constants ---
 CKPT_PATH = "/home/jeong/visualnav-transformer/nomad.pth"
+# CKPT_PATH = "/home/jeong/visualnav/train/logs/nomad_finetune/go2_run_2025_07_17_14_03_28/ema_latest.pth"
+# CKPT_PATH = "/home/jeong/visualnav/train/logs/nomad_finetune/go2_run_2025_07_17_14_03_28/ema_30.pth"
 CONFIG_PATH = "train/config/nomad.yaml"
 
 # --- FastAPI App Setup ---
 
 
-MAX_V = 0.4
+MAX_V = 1
 FRAME_RATE = 4
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Load resources on startup
     print("Loading model and resources...")
-    app.state.device = torch.device("cpu")
+    app.state.device = torch.device("cuda")
     
     # Load config
     if not os.path.exists(CONFIG_PATH):
@@ -144,7 +146,9 @@ def generate_waypoints(model, noise_sched, obs_queue, goal_img_tensor, cfg, devi
         obs_cond = obs_cond.repeat(num_samples, 1, 1)
 
     # Generate trajectories
+    import time
     with torch.no_grad():
+        start_time = time.time()
         noisy_action = torch.randn((num_samples, horizon, 2), device=device)
         naction = noisy_action
         noise_sched.set_timesteps(cfg['num_diffusion_iters'])
@@ -153,6 +157,8 @@ def generate_waypoints(model, noise_sched, obs_queue, goal_img_tensor, cfg, devi
             naction = noise_sched.step(model_output=noise_pred, timestep=k, sample=naction).prev_sample
         
         waypoints = to_numpy(get_action(naction))
+        elapsed_time = time.time() - start_time
+        print(f"Waypoint generation took {elapsed_time:.3f} seconds.")
     
     scaled_waypoints = waypoints * MAX_V / FRAME_RATE
 

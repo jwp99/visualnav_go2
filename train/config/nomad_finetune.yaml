@@ -1,0 +1,81 @@
+project_name: nomad_finetune
+run_name: go2_run
+load_run: nomad_finetune/go2_run
+
+# training setup
+use_wandb: False # set to false if you don't want to log to wandb
+train: True
+batch_size: 32
+epochs: 100
+gpu_ids: [0]
+num_workers: 12
+lr: 1e-4
+optimizer: adamw
+clipping: False
+max_norm: 1.
+scheduler: "cosine"
+warmup: True
+warmup_epochs: 4
+cyclic_period: 10
+plateau_patience: 3
+plateau_factor: 0.5
+seed: 0
+
+# model params
+model_type: nomad
+vision_encoder: nomad_vint
+encoding_size: 256
+obs_encoder: efficientnet-b0
+attn_unet: False
+cond_predict_scale: False
+mha_num_attention_heads: 4
+mha_num_attention_layers: 4
+mha_ff_dim_factor: 4
+down_dims: [64, 128, 256]
+
+# diffusion model params
+num_diffusion_iters: 10
+
+# mask
+goal_mask_prob: 0.5
+
+# normalization for the action space
+normalize: True
+
+# context
+context_type: temporal
+context_size: 3 # 5
+alpha: 1e-4
+
+# distance bounds for distance and action and distance predictions
+distance:
+  min_dist_cat: 0
+  max_dist_cat: 20
+action:
+  min_dist_cat: 3
+  max_dist_cat: 20
+
+# action output params
+len_traj_pred: 8
+learn_angle: False
+
+# dataset specific parameters
+image_size: [96, 96] # width, height
+datasets:
+  go2_dataset:
+    data_folder: ../traindata
+    train: vint_train/data/data_splits/go2_dataset/train/
+    test: vint_train/data/data_splits/go2_dataset/test/
+    end_slack: 0 # how many timesteps to cut off from the end of each trajectory  (in case many trajectories end in collisions)
+    goals_per_obs: 1 # how many goals are sampled per observation
+    negative_mining: True # negative mining from the ViNG paper (Shah et al.)
+
+# logging stuff
+## =0 turns off
+print_log_freq: 100 # in iterations
+image_log_freq: 1000 #0 # in iterations
+num_images_log: 8 #0
+pairwise_test_freq: 0 # in epochs
+eval_fraction: 0.25
+wandb_log_freq: 10 # in iterations
+eval_freq: 1 # in epochs 

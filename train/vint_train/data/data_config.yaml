@@ -60,4 +60,7 @@ carla:
 sacson:
   metric_waypoint_spacing: 0.255
 
+go2_dataset:
+  metric_waypoint_spacing: 0.3
+
 # add your own dataset params here:

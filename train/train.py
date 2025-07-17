@@ -1,5 +1,7 @@
 import os
-import wandb
+import sys
+sys.path.insert(0, '/home/jeong/visualnav/diffusion_policy')
+# import wandb
 import argparse
 import numpy as np
 import yaml
@@ -49,7 +51,6 @@ def main(config):
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(
             [str(x) for x in config["gpu_ids"]]
         )
-        print("Using cuda devices:", os.environ["CUDA_VISIBLE_DEVICES"])
     else:
         print("Using cpu")
 

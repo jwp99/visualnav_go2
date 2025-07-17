@@ -3,6 +3,7 @@ import os
 import numpy as np
 from typing import List, Optional, Dict
 from prettytable import PrettyTable
+from copy import deepcopy
 
 from vint_train.training.train_utils import train, evaluate
 from vint_train.training.train_utils import train_nomad, evaluate_nomad
@@ -193,7 +194,7 @@ def train_eval_loop_nomad(
         eval_freq: frequency of evaluation
     """
     latest_path = os.path.join(project_folder, f"latest.pth")
-    ema_model = EMAModel(model=model,power=0.75)
+    ema_model = EMAModel(model.parameters(),power=0.75)
     
     for epoch in range(current_epoch, current_epoch + epochs):
         if train_model:
@@ -220,10 +221,15 @@ def train_eval_loop_nomad(
             )
             lr_scheduler.step()
 
+        ema_model_to_save = deepcopy(model)
+        ema_model.copy_to(ema_model_to_save.parameters())
+        
         numbered_path = os.path.join(project_folder, f"ema_{epoch}.pth")
-        torch.save(ema_model.averaged_model.state_dict(), numbered_path)
-        numbered_path = os.path.join(project_folder, f"ema_latest.pth")
-        print(f"Saved EMA model to {numbered_path}")
+        torch.save(ema_model_to_save.state_dict(), numbered_path)
+
+        latest_ema_path = os.path.join(project_folder, f"ema_latest.pth")
+        torch.save(ema_model_to_save.state_dict(), latest_ema_path)
+        print(f"Saved EMA model to {latest_ema_path}")
 
         numbered_path = os.path.join(project_folder, f"{epoch}.pth")
         torch.save(model.state_dict(), numbered_path)
@@ -249,6 +255,7 @@ def train_eval_loop_nomad(
                 loader = test_dataloaders[dataset_type]
                 evaluate_nomad(
                     eval_type=dataset_type,
+                    model=model,
                     ema_model=ema_model,
                     dataloader=loader,
                     transform=transform,
@@ -263,19 +270,19 @@ def train_eval_loop_nomad(
                     use_wandb=use_wandb,
                     eval_fraction=eval_fraction,
                 )
-        wandb.log({
+        print({
             "lr": optimizer.param_groups[0]["lr"],
-        }, commit=False)
+        })
 
         if lr_scheduler is not None:
             lr_scheduler.step()
 
         # log average eval loss
-        wandb.log({}, commit=False)
+        print({})
 
-        wandb.log({
+        print({
             "lr": optimizer.param_groups[0]["lr"],
-        }, commit=False)
+        })
 
         
     # Flush the last set of eval logs
