@@ -24,12 +24,12 @@ class Go2TrajectoryCollector:
     def __init__(self, robot_ip="192.168.200.157"):
         self.robot_ip = robot_ip
         dataset_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.dataset_dir = f"testdata/go2_dataset_{dataset_id}"
+        self.dataset_dir = f"traindata/go2_{dataset_id}"
         self.output_pkl_path = os.path.join(self.dataset_dir, "traj_data.pkl")
         os.makedirs(self.dataset_dir, exist_ok=True)
         print(f"데이터셋이 '{self.dataset_dir}' 폴더에 저장됩니다.")
 
-        self.frame_queue = Queue(maxsize=30)
+        self.data_queue = Queue(maxsize=30)
         self.latest_state = {}
         self.state_lock = threading.Lock()
         self.is_running = True
@@ -47,8 +47,12 @@ class Go2TrajectoryCollector:
             try:
                 frame = await track.recv()
                 img = frame.to_ndarray(format="bgr24")
-                if not self.frame_queue.full():
-                    self.frame_queue.put(img)
+                
+                with self.state_lock:
+                    state_at_frame_time = self.latest_state.copy()
+
+                if not self.data_queue.full() and state_at_frame_time:
+                    self.data_queue.put((img, state_at_frame_time))
             except Exception:
                 break
 
@@ -89,12 +93,9 @@ class Go2TrajectoryCollector:
         try:
             while self.is_running:
                 try:
-                    image_frame = self.frame_queue.get(timeout=1.0)
+                    image_frame, current_state = self.data_queue.get(timeout=1.0)
                 except Empty:
                     continue
-
-                with self.state_lock:
-                    current_state = self.latest_state.copy()
                 
                 if not current_state: continue
 
