@@ -196,8 +196,8 @@ live_visualize = True
 # Local goal image to upload to the AI server at startup
 # GOAL_IMAGE_PATH = "testdata/go2_dataset_20250714_191924/90.jpg"
 # GOAL_IMAGE_PATH = "testdata/recording_20250716_174201/0073.jpg"
-GOAL_IMAGE_PATH = "testdata/recording_20250716_193037/0025.jpg"
-
+# GOAL_IMAGE_PATH = "testdata/recording_20250716_193037/0025.jpg"
+GOAL_IMAGE_PATH = "/Users/jwp/Documents/visualnav_go2/testdata/recording_20250716_193037/0031.jpg"
 class ControllerWrapper :
     def __init__(self):
 

@@ -39,6 +39,13 @@ def visualize_trajectory(dataset_dir):
     # Initial plot
     ax_traj.plot(positions[:, 0], positions[:, 1], 'b-', label='Full Trajectory')
     current_pos_plot, = ax_traj.plot(positions[0, 0], positions[0, 1], 'ro', markersize=10, label='Current Position')
+    
+    arrow_length = 0.1  # Arrow length in meters for visualization
+    yaw_arrow = ax_traj.quiver(positions[0, 0], positions[0, 1],
+                               arrow_length * np.cos(yaws[0]),
+                               arrow_length * np.sin(yaws[0]),
+                               color='r', angles='xy', scale_units='xy', scale=1)
+
     ax_traj.set_xlabel("X Position (m)")
     ax_traj.set_ylabel("Y Position (m)")
     ax_traj.set_title("Robot Trajectory")
@@ -63,6 +70,11 @@ def visualize_trajectory(dataset_dir):
         # Update trajectory plot
         current_pos_plot.set_data(positions[frame_idx, 0], positions[frame_idx, 1])
         
+        # Update yaw arrow
+        yaw_arrow.set_offsets(positions[frame_idx])
+        yaw_arrow.set_UVC(arrow_length * np.cos(yaws[frame_idx]),
+                          arrow_length * np.sin(yaws[frame_idx]))
+
         # Update image
         img_path = os.path.join(dataset_dir, image_files[frame_idx])
         img = cv2.imread(img_path)
@@ -82,6 +94,6 @@ if __name__ == "__main__":
     # parser.add_argument("dataset_dir", type=str, help="Path to the dataset directory.")
     # args = parser.parse_args()
 
-    dataset_dir = "traindata/go2_dataset_20250714_191924"
+    dataset_dir = "traindata/go2_20250717_180502"
 
     visualize_trajectory(dataset_dir) 
