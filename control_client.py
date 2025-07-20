@@ -424,10 +424,10 @@ def send_observation_image(image_b64: str):
 # -----------------------------------------------------------------------------
 
 
-def fetch_waypoints():
+def fetch_waypoints(explore = False):
     """Request waypoint predictions from the AI server and return as np.ndarray."""
     try:
-        resp = requests.post(f"{AI_SERVER_URL}/generate_waypoints/", timeout=6.0)
+        resp = requests.post(f"{AI_SERVER_URL}/generate_waypoints/", timeout=6.0, json={"explore": explore})
         resp.raise_for_status()
         waypoints = np.array(resp.json().get("waypoints", []), dtype=float)
         return waypoints

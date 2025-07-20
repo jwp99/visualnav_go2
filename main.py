@@ -22,7 +22,8 @@ from deployment.src.utils import load_model, transform_images, to_numpy
 from vint_train.training.train_utils import get_action
 
 # --- Constants ---
-CKPT_PATH = "/home/jeong/visualnav-transformer/nomad.pth"
+# CKPT_PATH = "/home/jeong/visualnav-transformer/nomad.pth"
+CKPT_PATH = "/home/jeong/visualnav/train/logs/nomad_finetune/go2_run_2025_07_17_19_38_52/ema_99.pth"
 # CKPT_PATH = "/home/jeong/visualnav/train/logs/nomad_finetune/go2_run_2025_07_17_14_03_28/ema_latest.pth"
 # CKPT_PATH = "/home/jeong/visualnav/train/logs/nomad_finetune/go2_run_2025_07_17_14_03_28/ema_30.pth"
 CONFIG_PATH = "train/config/nomad.yaml"
@@ -113,7 +114,11 @@ def draw_waypoints_on_image(image: Image.Image, trajectories: np.ndarray):
     
     return image
 
-def generate_waypoints(model, noise_sched, obs_queue, goal_img_tensor, cfg, device, visualize=True):
+    
+    
+
+
+def generate_waypoints(model, noise_sched, obs_queue, goal_img_tensor, cfg, device, explore = False, visualize=True):
     """
     Generates waypoint predictions given observations and a goal image.
     """
@@ -135,7 +140,13 @@ def generate_waypoints(model, noise_sched, obs_queue, goal_img_tensor, cfg, devi
     obs_images_tensors = torch.cat(obs_images_list, dim=1).to(device)
 
     # Get conditioning vector
-    mask = torch.zeros(1).long().to(device)
+    if explore: 
+        mask  = torch.ones(1).long().to(device)
+        goal_img_tensor = torch.randn((1, 3, *cfg['image_size'])).to(device)
+    else: 
+        mask = torch.zeros(1).long().to(device)
+        goal_img_tensor = goal_img_tensor
+        
     with torch.no_grad():
         obs_cond = model('vision_encoder', obs_img=obs_images_tensors, goal_img=goal_img_tensor, input_goal_mask=mask)
 
@@ -302,7 +313,8 @@ async def generate_waypoints_endpoint(use_map: Optional[bool] = False,
                                     topomap_dir: Optional[str] = "testdata/recording_20250716_174201",
                                     radius: Optional[int] = 8,
                                     close_threshold: Optional[int] = 3,
-                                    num_samples: Optional[int] = 8):
+                                    num_samples: Optional[int] = 8,
+                                    explore: Optional[bool] = False):
     if not use_map:
         if app.state.goal_image_tensor is None:
             raise HTTPException(status_code=400, detail="Goal image not set.")
@@ -316,7 +328,8 @@ async def generate_waypoints_endpoint(use_map: Optional[bool] = False,
                 obs_queue=app.state.obs_queue.copy(),
                 goal_img_tensor=app.state.goal_image_tensor,
                 cfg=app.state.cfg,
-                device=app.state.device
+                device=app.state.device,
+                explore=explore
             )
             app.state.latest_waypoints = waypoints
             return {"waypoints": waypoints.tolist()}

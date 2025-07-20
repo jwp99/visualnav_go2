@@ -3,7 +3,7 @@ run_name: go2_run
 load_run: nomad_finetune/go2_run
 
 # training setup
-use_wandb: False # set to false if you don't want to log to wandb
+use_wandb: True # set to false if you don't want to log to wandb
 train: True
 batch_size: 32
 epochs: 100
